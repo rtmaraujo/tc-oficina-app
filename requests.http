@@ -1,0 +1,228 @@
+### Login to get Bearer token
+POST http://localhost:8080/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "usuario": "admin",
+  "senha": "admin123"
+}
+
+> {%
+client.global.set("access_token", response.body.access_token);
+%}
+
+### Create Cliente (use este CPF para criar a OS)
+POST http://localhost:8080/api/v1/admin/clientes
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Mario Silva",
+  "cpfCnpj": "17861341011",
+  "email": "mario.silva@email.com",
+  "telefone": "11987651234"
+}
+
+### Get Cliente by ID
+GET http://localhost:8080/api/v1/admin/clientes/1
+Authorization: Bearer {{access_token}}
+
+### Update Cliente
+PUT http://localhost:8080/api/v1/admin/clientes/1
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "João da Silva",
+  "email": "joao.atualizado@email.com",
+  "telefone": "11987654322"
+}
+
+### Delete Cliente
+DELETE http://localhost:8080/api/v1/admin/clientes/2
+Authorization: Bearer {{access_token}}
+
+### Create Veiculo (use esta placa para criar a OS)
+POST http://localhost:8080/api/v1/admin/veiculos
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "placa": "ABC-1234",
+  "marca": "Toyota",
+  "modelo": "Corolla",
+  "ano": 2020,
+  "clienteId": 1
+}
+
+### Get Veiculo by ID
+GET http://localhost:8080/api/v1/admin/veiculos/1
+Authorization: Bearer {{access_token}}
+
+### Get Veiculos by Cliente ID
+GET http://localhost:8080/api/v1/admin/veiculos/cliente/1
+Authorization: Bearer {{access_token}}
+
+### Update Veiculo
+PUT http://localhost:8080/api/v1/admin/veiculos/1
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "marca": "Honda",
+  "modelo": "Civic",
+  "ano": 2021
+}
+
+### Delete Veiculo
+DELETE http://localhost:8080/api/v1/admin/veiculos/1
+Authorization: Bearer {{access_token}}
+
+### Create Peca
+POST http://localhost:8080/api/v1/admin/pecas
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Filtro de Óleo",
+  "descricao": "Filtro para motor a gasolina",
+  "preco": 50.00,
+  "qtdEstoque": 100
+}
+
+### Get Peca by ID
+GET http://localhost:8080/api/v1/admin/pecas/1
+Authorization: Bearer {{access_token}}
+
+### Update Peca
+PUT http://localhost:8080/api/v1/admin/pecas/1
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Filtro de Óleo Premium",
+  "descricao": "Filtro de alta qualidade",
+  "preco": 60.00,
+  "qtdEstoque": 80
+}
+
+### Delete Peca
+DELETE http://localhost:8080/api/v1/admin/pecas/1
+Authorization: Bearer {{access_token}}
+
+### Create Servico
+POST http://localhost:8080/api/v1/admin/servicos
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Troca de Óleo",
+  "descricao": "Troca completa de óleo do motor",
+  "preco": 100.00
+}
+
+### Get Servico by ID
+GET http://localhost:8080/api/v1/admin/servicos/1
+Authorization: Bearer {{access_token}}
+
+### Update Servico
+PUT http://localhost:8080/api/v1/admin/servicos/1
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Troca de Óleo Completa",
+  "descricao": "Inclui filtro e óleo",
+  "preco": 120.00
+}
+
+### Delete Servico
+DELETE http://localhost:8080/api/v1/admin/servicos/1
+Authorization: Bearer {{access_token}}
+
+### ========== FLUXO ORDEM DE SERVICO ==========
+### Passo a passo:
+### 1. Criar OS -> RECEBIDA
+### 2. Avancar -> EM_DIAGNOSTICO
+### 3. Avancar -> AGUARDANDO_APROVACAO
+### 4. Aprovar orcamento (admin OU cliente) -> EM_EXECUCAO
+### 5. Avancar -> FINALIZADA
+### 6. Avancar -> ENTREGUE
+### 
+### NOTA: No status AGUARDANDO_APROVACAO o avanca BLOQUEIA.
+###       Use o endpoint /aprovar-orcamento nesse status.
+
+### Create Ordem de Servico
+POST http://localhost:8080/api/v1/admin/ordem
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "clienteCpfCnpj": "17861341011",
+  "placaVeiculo": "ABC-1234",
+  "servicosIds": [1],
+  "pecasIds": [1]
+}
+
+### Get All Ordens de Servico
+GET http://localhost:8080/api/v1/admin/ordem
+Authorization: Bearer {{access_token}}
+
+### Get Ordem de Servico by ID
+GET http://localhost:8080/api/v1/admin/ordem/1
+Authorization: Bearer {{access_token}}
+
+### [PASSO 2] Avanca Status: RECEBIDA -> EM_DIAGNOSTICO
+PUT http://localhost:8080/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### [PASSO 3] Avanca Status: EM_DIAGNOSTICO -> AGUARDANDO_APROVACAO
+PUT http://localhost:8080/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### [PASSO 4] Aprovar Orcamento (Admin): AGUARDANDO_APROVACAO -> EM_EXECUCAO
+POST http://localhost:8080/api/v1/admin/ordem/1/aprovar-orcamento
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "aprovado": true,
+  "observacoes": "Orçamento aprovado"
+}
+
+### [PASSO 4 - Alternativa] Aprovar Orcamento (Public - Cliente): AGUARDANDO_APROVACAO -> EM_EXECUCAO
+POST http://localhost:8080/api/v1/publico/ordem/1/aprovar-orcamento
+Content-Type: application/json
+
+{
+  "aprovado": true,
+  "observacoes": "Aprovado, pode prosseguir"
+}
+
+### Recusar Orcamento (Public - Cliente): AGUARDANDO_APROVACAO -> RECUSADA
+POST http://localhost:8080/api/v1/publico/ordem/1/aprovar-orcamento
+Content-Type: application/json
+
+{
+  "aprovado": false,
+  "observacoes": "Orçamento acima do esperado"
+}
+
+### [PASSO 5] Avanca Status: EM_EXECUCAO -> FINALIZADA
+PUT http://localhost:8080/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### [PASSO 6] Avanca Status: FINALIZADA -> ENTREGUE
+PUT http://localhost:8080/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### Delete Ordem de Servico
+DELETE http://localhost:8080/api/v1/admin/ordem/1
+Authorization: Bearer {{access_token}}
+
+### Get Ordens by Cliente (Public)
+GET http://localhost:8080/api/v1/publico/ordem/cliente/1
+
+### Get Tempo Medio de Execucao (Metrics)
+GET http://localhost:8080/api/v1/admin/metricas/tempo-execucao
+Authorization: Bearer {{access_token}}

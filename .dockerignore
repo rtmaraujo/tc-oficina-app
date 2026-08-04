@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+
+# Build
+target
+build
+*.class
+*.jar
+*.log
+
+# Maven
+.m2
+*.war
+*.ear
+
+# Arquivos de teste
+test_output.log
+test_run.log
+
+# Documentos
+*.pdf
+*.doc
+*.docx
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Node (se houver)
+node_modules
+npm-debug.log
+
+# Outros
+README.md
+LICENSE
+.env
+.env.local
+

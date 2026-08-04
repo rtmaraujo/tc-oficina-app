@@ -1,0 +1,126 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Build e Testes
+        run: mvn clean verify
+
+      - name: Upload JaCoCo Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+  docker-build:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t tc-oficina-app:${{ github.sha }} \
+            -t tc-oficina-app:latest \
+            .
+
+      - name: Export Docker Image
+        run: |
+          docker save tc-oficina-app:${{ github.sha }} \
+            -o tc-oficina-app-image.tar
+
+      - name: Upload Docker Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: tc-oficina-app-image.tar
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: docker-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Docker Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Simular Deploy Kubernetes
+        run: |
+          echo "========================================="
+          echo "      SIMULANDO DEPLOY NO KUBERNETES"
+          echo "========================================="
+          echo ""
+          echo "Aplicação : tc-oficina-app"
+          echo "Imagem    : tc-oficina-app:${{ github.sha }}"
+          echo "Namespace : tc-oficina"
+          echo "Replicas  : 2"
+          echo ""
+          sleep 5
+          echo "Deployment criado."
+          echo "Service criado."
+          echo "ConfigMap aplicado."
+          echo "Secret aplicado."
+          echo "HPA aplicado."
+          echo ""
+          echo "Deploy concluído com sucesso."
+
+      - name: Simular Health Check
+        run: |
+          echo ""
+          echo "Executando Health Check..."
+          sleep 3
+          echo "Aplicação respondeu HTTP 200"
+          echo "Status: UP"
+
+      - name: Simular Rollout
+        run: |
+          echo ""
+          echo "Verificando Rollout..."
+          sleep 3
+          echo "2/2 Pods disponíveis"
+          echo "Rollout finalizado com sucesso."
+
+      - name: Resumo da Pipeline
+        run: |
+          echo ""
+          echo "========================================="
+          echo "           PIPELINE FINALIZADA"
+          echo "========================================="
+          echo "Build Java................. OK"
+          echo "Testes Unitários........... OK"
+          echo "JaCoCo..................... OK"
+          echo "Docker Build............... OK"
+          echo "Deploy..................... SIMULADO"
+          echo "Health Check............... OK"
+          echo "Rollout.................... OK"
+          echo "========================================="

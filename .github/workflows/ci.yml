@@ -2,7 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, homologacao]
   pull_request:
     branches: [main]
 
@@ -10,6 +10,9 @@ permissions:
   contents: read
   pull-requests: write
   checks: write
+
+env:
+  AWS_REGION: us-east-1
 
 jobs:
 
@@ -45,82 +48,181 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker Image
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no ECR
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          aws ecr get-login-password --region "${{ env.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "$ECR_REPOSITORY_URL"
+
+      - name: Build e Push da Imagem
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
         run: |
           docker build \
-            -t tc-oficina-app:${{ github.sha }} \
-            -t tc-oficina-app:latest \
+            -t "$ECR_REPOSITORY_URL:${{ github.sha }}" \
+            -t "$ECR_REPOSITORY_URL:latest" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg COMMIT_SHA="${{ github.sha }}" \
             .
+          docker push "$ECR_REPOSITORY_URL:${{ github.sha }}"
+          docker push "$ECR_REPOSITORY_URL:latest"
 
-      - name: Export Docker Image
-        run: |
-          docker save tc-oficina-app:${{ github.sha }} \
-            -o tc-oficina-app-image.tar
-
-      - name: Upload Docker Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-image
-          path: tc-oficina-app-image.tar
-
-  deploy:
-    if: github.ref == 'refs/heads/main'
+  deploy-homologacao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/homologacao'
     needs: docker-build
     runs-on: ubuntu-latest
+    environment: homologacao
+
+    env:
+      NAMESPACE: tc-oficina-homolog
+      ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
 
     steps:
-      - name: Download Docker Artifact
-        uses: actions/download-artifact@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: docker-image
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Simular Deploy Kubernetes
-        run: |
-          echo "========================================="
-          echo "      SIMULANDO DEPLOY NO KUBERNETES"
-          echo "========================================="
-          echo ""
-          echo "Aplicação : tc-oficina-app"
-          echo "Imagem    : tc-oficina-app:${{ github.sha }}"
-          echo "Namespace : tc-oficina"
-          echo "Replicas  : 2"
-          echo ""
-          sleep 5
-          echo "Deployment criado."
-          echo "Service criado."
-          echo "ConfigMap aplicado."
-          echo "Secret aplicado."
-          echo "HPA aplicado."
-          echo ""
-          echo "Deploy concluído com sucesso."
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
 
-      - name: Simular Health Check
+      - name: Kubeconfig EKS
         run: |
-          echo ""
-          echo "Executando Health Check..."
-          sleep 3
-          echo "Aplicação respondeu HTTP 200"
-          echo "Status: UP"
+          aws eks update-kubeconfig \
+            --name "${{ vars.CLUSTER_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
 
-      - name: Simular Rollout
-        run: |
-          echo ""
-          echo "Verificando Rollout..."
-          sleep 3
-          echo "2/2 Pods disponíveis"
-          echo "Rollout finalizado com sucesso."
+      - name: Obter Manifestos (tc-oficina-infra-k8s)
+        uses: actions/checkout@v4
+        with:
+          repository: rtmaraujo/tc-oficina-infra-k8s
+          path: infra-k8s
 
-      - name: Resumo da Pipeline
+      - name: Renderizar e Aplicar Manifestos (homologacao)
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
+          ECR_IMAGE: ${{ env.ECR_IMAGE }}
+          RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+          ADMIN_USUARIO: ${{ secrets.ADMIN_USUARIO }}
+          ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          echo ""
-          echo "========================================="
-          echo "           PIPELINE FINALIZADA"
-          echo "========================================="
-          echo "Build Java................. OK"
-          echo "Testes Unitários........... OK"
-          echo "JaCoCo..................... OK"
-          echo "Docker Build............... OK"
-          echo "Deploy..................... SIMULADO"
-          echo "Health Check............... OK"
-          echo "Rollout.................... OK"
-          echo "========================================="
+          sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
+          mkdir -p rendered
+          for f in infra-k8s/k8s/*.yaml; do
+            envsubst < "$f" > "rendered/$(basename "$f")"
+          done
+          kubectl apply -f rendered/
+
+      - name: Aguardar Rollout
+        run: |
+          kubectl rollout status deployment/app-deployment \
+            -n "${{ env.NAMESPACE }}" --timeout=300s
+          kubectl get pods -n "${{ env.NAMESPACE }}"
+
+      - name: Smoke Test (healthcheck)
+        run: |
+          kubectl port-forward svc/app-service -n "${{ env.NAMESPACE }}" 18080:80 >/dev/null 2>&1 &
+          PID=$!
+          trap "kill $PID" EXIT
+          sleep 8
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:18080/actuator/health; then
+              echo ""
+              echo "Healthcheck OK (homologacao)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Healthcheck falhou em homologacao"
+          exit 1
+
+  deploy-producao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docker-build
+    runs-on: ubuntu-latest
+    environment: producao
+
+    env:
+      NAMESPACE: tc-oficina
+      ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Kubeconfig EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name "${{ vars.CLUSTER_NAME }}" \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Obter Manifestos (tc-oficina-infra-k8s)
+        uses: actions/checkout@v4
+        with:
+          repository: rtmaraujo/tc-oficina-infra-k8s
+          path: infra-k8s
+
+      - name: Renderizar e Aplicar Manifestos (producao)
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
+          ECR_IMAGE: ${{ env.ECR_IMAGE }}
+          RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+          ADMIN_USUARIO: ${{ secrets.ADMIN_USUARIO }}
+          ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
+          mkdir -p rendered
+          for f in infra-k8s/k8s/*.yaml; do
+            envsubst < "$f" > "rendered/$(basename "$f")"
+          done
+          kubectl apply -f rendered/
+
+      - name: Aguardar Rollout
+        run: |
+          kubectl rollout status deployment/app-deployment \
+            -n "${{ env.NAMESPACE }}" --timeout=300s
+          kubectl get pods -n "${{ env.NAMESPACE }}"
+
+      - name: Smoke Test (healthcheck)
+        run: |
+          kubectl port-forward svc/app-service -n "${{ env.NAMESPACE }}" 18080:80 >/dev/null 2>&1 &
+          PID=$!
+          trap "kill $PID" EXIT
+          sleep 8
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:18080/actuator/health; then
+              echo ""
+              echo "Healthcheck OK (producao)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Healthcheck falhou em producao"
+          exit 1

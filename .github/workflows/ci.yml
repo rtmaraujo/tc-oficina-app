@@ -120,6 +120,9 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
           mkdir -p rendered
           for f in infra-k8s/k8s/*.yaml; do
+            case "$(basename "$f")" in
+              auth-*) continue ;;
+            esac
             envsubst < "$f" > "rendered/$(basename "$f")"
           done
           ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -194,6 +197,9 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
           mkdir -p rendered
           for f in infra-k8s/k8s/*.yaml; do
+            case "$(basename "$f")" in
+              auth-*) continue ;;
+            esac
             envsubst < "$f" > "rendered/$(basename "$f")"
           done
           ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \

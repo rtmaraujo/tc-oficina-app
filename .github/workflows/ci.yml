@@ -1,0 +1,294 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, homologacao]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+env:
+  AWS_REGION: us-west-2
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Build e Testes
+        run: mvn clean verify
+
+      - name: Upload JaCoCo Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+
+  docker-build:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login no ECR
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          aws ecr get-login-password --region "${{ env.AWS_REGION }}" \
+            | docker login --username AWS --password-stdin "$ECR_REPOSITORY_URL"
+
+      - name: Build e Push da Imagem
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          docker build \
+            -t "$ECR_REPOSITORY_URL:${{ github.sha }}" \
+            -t "$ECR_REPOSITORY_URL:latest" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg COMMIT_SHA="${{ github.sha }}" \
+            .
+          docker push "$ECR_REPOSITORY_URL:${{ github.sha }}"
+          docker push "$ECR_REPOSITORY_URL:latest"
+
+  deploy-homologacao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/homologacao'
+    needs: docker-build
+    runs-on: ubuntu-latest
+    environment: homologacao
+
+    env:
+      NAMESPACE: tc-oficina-homolog
+      NODE_PORT: "30081"
+      ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configurar chave SSH do cluster k3s
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.K3S_SSH_KEY }}" > ~/.ssh/k3s
+          chmod 600 ~/.ssh/k3s
+          ssh-keyscan -H "${{ vars.K3S_SERVER_IP }}" > /dev/null 2>&1 || true
+
+      - name: Obter Manifestos (tc-oficina-infra-k8s)
+        uses: actions/checkout@v4
+        with:
+          repository: rtmaraujo/tc-oficina-infra-k8s
+          path: infra-k8s
+
+      - name: Atualizar secret regcred (token ECR)
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          K3S_HOST: ${{ vars.K3S_SERVER_IP }}
+          NAMESPACE: ${{ env.NAMESPACE }}
+        run: |
+          TOKEN=$(aws ecr get-login-password --region "${{ env.AWS_REGION }}")
+          SERVER=$(echo "$ECR_REPOSITORY_URL" | cut -d/ -f1)
+          AUTH=$(printf 'AWS:%s' "$TOKEN" | base64 -w0)
+          SECRET_YAML=$(cat <<EOF
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: regcred
+            namespace: $NAMESPACE
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: $(printf '{"auths":{"%s":{"username":"AWS","password":"%s","auth":"%s"}}}' "$SERVER" "$TOKEN" "$AUTH" | base64 -w0)
+          EOF
+          )
+          echo "$SECRET_YAML" | ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -"
+
+      - name: Renderizar e Aplicar Manifestos (homologacao)
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
+          NODE_PORT: ${{ env.NODE_PORT }}
+          ECR_IMAGE: ${{ env.ECR_IMAGE }}
+          RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+          ADMIN_USUARIO: ${{ secrets.ADMIN_USUARIO }}
+          ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          K3S_HOST: ${{ vars.K3S_SERVER_IP }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
+          mkdir -p rendered
+          for f in infra-k8s/k8s/*.yaml; do
+            case "$(basename "$f")" in
+              auth-*) continue ;;
+            esac
+            envsubst < "$f" > "rendered/$(basename "$f")"
+          done
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -" < rendered/namespace.yaml
+          for f in rendered/*.yaml; do
+            b="$(basename "$f")"
+            [ "$b" = "namespace.yaml" ] && continue
+            ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -" < "$f" || exit 1
+          done
+
+      - name: Aguardar Rollout
+        run: |
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"${{ vars.K3S_SERVER_IP }}" "sudo k3s kubectl rollout status deployment/app-deployment -n ${{ env.NAMESPACE }} --timeout=300s"
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"${{ vars.K3S_SERVER_IP }}" "sudo k3s kubectl get pods -n ${{ env.NAMESPACE }}"
+
+      - name: Smoke Test (healthcheck)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://${{ vars.K3S_SERVER_IP }}:${{ env.NODE_PORT }}/actuator/health"; then
+              echo ""
+              echo "Healthcheck OK (homologacao)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Healthcheck falhou em homologacao"
+          exit 1
+
+  deploy-producao:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docker-build
+    runs-on: ubuntu-latest
+    environment: producao
+
+    env:
+      NAMESPACE: tc-oficina
+      NODE_PORT: "30080"
+      ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configurar chave SSH do cluster k3s
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.K3S_SSH_KEY }}" > ~/.ssh/k3s
+          chmod 600 ~/.ssh/k3s
+          ssh-keyscan -H "${{ vars.K3S_SERVER_IP }}" > /dev/null 2>&1 || true
+
+      - name: Obter Manifestos (tc-oficina-infra-k8s)
+        uses: actions/checkout@v4
+        with:
+          repository: rtmaraujo/tc-oficina-infra-k8s
+          path: infra-k8s
+
+      - name: Atualizar secret regcred (token ECR)
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          K3S_HOST: ${{ vars.K3S_SERVER_IP }}
+          NAMESPACE: ${{ env.NAMESPACE }}
+        run: |
+          TOKEN=$(aws ecr get-login-password --region "${{ env.AWS_REGION }}")
+          SERVER=$(echo "$ECR_REPOSITORY_URL" | cut -d/ -f1)
+          AUTH=$(printf 'AWS:%s' "$TOKEN" | base64 -w0)
+          SECRET_YAML=$(cat <<EOF
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: regcred
+            namespace: $NAMESPACE
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: $(printf '{"auths":{"%s":{"username":"AWS","password":"%s","auth":"%s"}}}' "$SERVER" "$TOKEN" "$AUTH" | base64 -w0)
+          EOF
+          )
+          echo "$SECRET_YAML" | ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -"
+
+      - name: Renderizar e Aplicar Manifestos (producao)
+        env:
+          NAMESPACE: ${{ env.NAMESPACE }}
+          NODE_PORT: ${{ env.NODE_PORT }}
+          ECR_IMAGE: ${{ env.ECR_IMAGE }}
+          RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
+          SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
+          ADMIN_USUARIO: ${{ secrets.ADMIN_USUARIO }}
+          ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          K3S_HOST: ${{ vars.K3S_SERVER_IP }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq gettext-base
+          mkdir -p rendered
+          for f in infra-k8s/k8s/*.yaml; do
+            case "$(basename "$f")" in
+              auth-*) continue ;;
+            esac
+            envsubst < "$f" > "rendered/$(basename "$f")"
+          done
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -" < rendered/namespace.yaml
+          for f in rendered/*.yaml; do
+            b="$(basename "$f")"
+            [ "$b" = "namespace.yaml" ] && continue
+            ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              ubuntu@"$K3S_HOST" "sudo k3s kubectl apply -f -" < "$f" || exit 1
+          done
+
+      - name: Aguardar Rollout
+        run: |
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"${{ vars.K3S_SERVER_IP }}" "sudo k3s kubectl rollout status deployment/app-deployment -n ${{ env.NAMESPACE }} --timeout=300s"
+          ssh -i ~/.ssh/k3s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            ubuntu@"${{ vars.K3S_SERVER_IP }}" "sudo k3s kubectl get pods -n ${{ env.NAMESPACE }}"
+
+      - name: Smoke Test (healthcheck)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://${{ vars.K3S_SERVER_IP }}:${{ env.NODE_PORT }}/actuator/health"; then
+              echo ""
+              echo "Healthcheck OK (producao)"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Healthcheck falhou em producao"
+          exit 1

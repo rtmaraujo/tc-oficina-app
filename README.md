@@ -323,9 +323,9 @@ tc-oficina-app/
 ```
 
 > **Repositórios relacionados:**
-> - [tc-oficina-infra-k8s](https://github.com/) - Cluster EKS + manifestos Kubernetes (Terraform)
-> - [tc-oficina-infra-db](https://github.com/) - RDS PostgreSQL gerenciado (Terraform)
-> - [tc-oficina-lambda](https://github.com/) - Function Serverless de autenticação via CPF
+> - [tc-oficina-infra-k8s](https://github.com/rtmaraujo/tc-oficina-infra-k8s) - Cluster k3s (EC2) + manifestos Kubernetes (Terraform)
+> - [tc-oficina-infra-db](https://github.com/rtmaraujo/tc-oficina-infra-db) - RDS PostgreSQL gerenciado (Terraform)
+> - [tc-oficina-lambda](https://github.com/rtmaraujo/tc-oficina-lambda) - Function Serverless de autenticação via CPF (Lambda + API Gateway)
 
 ---
 
@@ -797,17 +797,30 @@ services:
 
 ---
 
-### Kubernetes (EKS) + Banco Gerenciado
+### Kubernetes (k3s em EC2) + Banco Gerenciado
 
-O cluster Kubernetes (EKS), o banco de dados gerenciado (RDS) e a function serverless de autenticação foram segregados em repositórios próprios:
+O cluster Kubernetes (**k3s autogerenciado em EC2**), o banco de dados gerenciado (RDS)
+e a function serverless de autenticação foram segregados em repositórios próprios:
 
 | Recurso | Repositório |
 |---------|-------------|
-| Cluster EKS + manifestos da app | [tc-oficina-infra-k8s](https://github.com/) |
-| RDS PostgreSQL (gerenciado) | [tc-oficina-infra-db](https://github.com/) |
-| Function Serverless de autenticação | [tc-oficina-lambda](https://github.com/) |
+| Cluster k3s (EC2) + manifestos da app | [tc-oficina-infra-k8s](https://github.com/rtmaraujo/tc-oficina-infra-k8s) |
+| RDS PostgreSQL (gerenciado) | [tc-oficina-infra-db](https://github.com/rtmaraujo/tc-oficina-infra-db) |
+| Function Serverless de autenticação | [tc-oficina-lambda](https://github.com/rtmaraujo/tc-oficina-lambda) |
 
-A imagem Docker gerada por este repositório é publicada no **ECR** e consumida pelo `Deployment` no cluster EKS.
+A imagem Docker gerada por este repositório é publicada no **ECR** e consumida pelo
+`Deployment` no cluster k3s (NodePort).
+
+**Ambientes em produção:**
+
+| Ambiente | Namespace | App | Swagger | Auth container |
+|----------|-----------|-----|---------|----------------|
+| Produção | `tc-oficina` | `http://35.84.122.229:30080` | `http://35.84.122.229:30080/swagger-ui/index.html` | `http://35.84.122.229:30082/auth` |
+| Homologação | `tc-oficina-homolog` | `http://35.84.122.229:30081` | `http://35.84.122.229:30081/swagger-ui/index.html` | `http://35.84.122.229:30083/auth` |
+
+Documentação de arquitetura, decisões (ADRs) e modelo de dados:
+[`docs/architecture.md`](docs/architecture.md), [`docs/adr/`](docs/adr/),
+[`docs/database-er.md`](docs/database-er.md).
 
 ---
 

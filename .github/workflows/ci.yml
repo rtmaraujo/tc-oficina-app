@@ -86,6 +86,8 @@ jobs:
     env:
       NAMESPACE: tc-oficina-homolog
       NODE_PORT: "30081"
+      MIN_REPLICAS: "1"
+      MAX_REPLICAS: "2"
       ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
     steps:
       - name: Checkout
@@ -141,6 +143,8 @@ jobs:
         env:
           NAMESPACE: ${{ env.NAMESPACE }}
           NODE_PORT: ${{ env.NODE_PORT }}
+          MIN_REPLICAS: ${{ env.MIN_REPLICAS }}
+          MAX_REPLICAS: ${{ env.MAX_REPLICAS }}
           ECR_IMAGE: ${{ env.ECR_IMAGE }}
           RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
           SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
@@ -197,6 +201,8 @@ jobs:
     env:
       NAMESPACE: tc-oficina
       NODE_PORT: "30080"
+      MIN_REPLICAS: "2"
+      MAX_REPLICAS: "3"
       ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
 
     steps:
@@ -253,6 +259,8 @@ jobs:
         env:
           NAMESPACE: ${{ env.NAMESPACE }}
           NODE_PORT: ${{ env.NODE_PORT }}
+          MIN_REPLICAS: ${{ env.MIN_REPLICAS }}
+          MAX_REPLICAS: ${{ env.MAX_REPLICAS }}
           ECR_IMAGE: ${{ env.ECR_IMAGE }}
           RDS_ENDPOINT: ${{ vars.RDS_ENDPOINT }}
           SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}

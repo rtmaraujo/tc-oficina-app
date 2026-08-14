@@ -15,7 +15,7 @@ Duas branchs de deploy em todos os repositórios:
 | Branch | Ambiente | Namespace k3s | API Gateway | Stack SAM |
 |--------|----------|---------------|-------------|-----------|
 | `main` | produção | `tc-oficina` | `:80` / `:443` (entrypoint `web`) | `tc-oficina-auth` |
-| `homologacao` | homologação | `tc-oficina-homolog` | `:8081` / `:8443` (entrypoint `web-homolog`) | `tc-oficina-auth-homolog` |
+| `homologacao` | homologação | `tc-oficina-homolog` | `:8081` (entrypoint `web-homolog`) | `tc-oficina-auth-homolog` |
 
 - Branch `main` é **protegida**: mudanças apenas via Pull Request.
 - `homologacao` é fast-forward a partir de `main` após o merge do PR.

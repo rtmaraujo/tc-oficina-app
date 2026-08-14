@@ -18,7 +18,7 @@ Backend robusto para gestão de oficina mecânica com:
 - **Event Sourcing & Domain Storytelling** - Rastreamento de eventos de negócio
 - **RESTful API** completa com autenticação JWT
 - **Cobertura de testes**: 90% instruções (JaCoCo), 400+ testes
-- **Production-ready**: Docker, Kubernetes, Terraform (AWS EKS), GitHub Actions CI/CD
+- **Production-ready**: Docker, Kubernetes (k3s em EC2), Terraform, GitHub Actions CI/CD
 - **Zero CVEs**: Todas as dependências auditadas
 - **API Documentation**: Swagger/OpenAPI interativo
 
@@ -95,8 +95,8 @@ curl -X GET http://localhost:8080/actuator/health
 ### DevOps & Deployment
 
 - **Docker & Docker Compose** - Containerização multi-stage (~120 MB)
-- **Kubernetes (EKS)** - Orquestração na AWS
-- **Terraform** - Infrastructure as Code (recursos K8s via AWS EKS)
+- **Kubernetes (k3s autogerenciado em EC2)** - Orquestração na AWS
+- **Terraform** - Infrastructure as Code (cluster k3s, VPC, ECR e SG)
 - **GitHub Actions** - CI/CD pipeline automatizado
 - **Maven** - Build tool
 
@@ -179,8 +179,8 @@ flowchart TB
 | Ambiente | Stack | Uso |
 |----------|-------|-----|
 | **Docker Compose** | App + PostgreSQL 15 | Desenvolvimento local |
-| **Kubernetes (EKS)** | App (2-10 pods), PostgreSQL, ConfigMap, Secret, HPA | Produção / staging |
-| **Terraform** | Provisiona namespace, deployment, service, configmap, secret | IaC sobre EKS |
+| **Kubernetes (k3s em EC2)** | App (2 réplicas), PostgreSQL RDS, ConfigMap, Secret, HPA | Produção / homologação |
+| **Terraform** | Provisiona cluster k3s, VPC, ECR, SG e EIP | IaC (infra-k8s) |
 
 ### Clean Architecture
 
@@ -411,6 +411,8 @@ java -jar target/*.jar
 A aplicação estará disponível em `http://localhost:8080`
 
 > **Dica:** O arquivo `requests.http` na raiz do projeto contém exemplos prontos de todas as requisições (autenticação, CRUD de clientes, veículos, serviços, peças e ordens de serviço). Use com IntelliJ IDEA ou VS Code REST Client para testar a API rapidamente.
+>
+> **Testes nos ambientes publicados:** o arquivo `requests-prod.http` contém as mesmas requisições apontando para os deploys ativos em **produção** (porta 80) e **homologação** (porta 8081), incluindo o endpoint da Lambda de autenticação via CPF.
 
 ---
 
@@ -728,6 +730,24 @@ open target/site/jacoco/index.html
 | **Java** | 21 source/target |
 | **Build** | Maven |
 
+### Relatórios de Qualidade
+
+#### Cobertura de Testes (JaCoCo)
+
+![Relatório JaCoCo](docs/images/jacoco.png)
+
+*Relatório de cobertura de testes gerado pelo JaCoCo (90% de instruções).*
+
+#### Análise Estática (SonarQube)
+
+![Visão geral SonarQube](docs/images/sonar-overview.png)
+
+![Visão geral SonarQube 2](docs/images/sonar-overview-1.png)
+
+![Issues SonarQube](docs/images/sonar-issues.png)
+
+*Análise estática de código com SonarQube: visão geral do projeto e issues detectadas.*
+
 ### Exclusões de Cobertura (JaCoCo)
 
 Configuradas em `pom.xml` para evitar ruído:
@@ -817,8 +837,9 @@ A imagem Docker gerada por este repositório é publicada no **ECR** e consumida
 
 | Ambiente | Namespace | API Gateway | Swagger | Auth |
 |----------|-----------|-------------|---------|------|
-| Produção | `tc-oficina` | `http://35.84.122.229` (porta 80) | `http://35.84.122.229/swagger-ui/index.html` | `http://35.84.122.229/auth` |
-| Homologação | `tc-oficina-homolog` | `http://35.84.122.229:8081` | `http://35.84.122.229:8081/swagger-ui/index.html` | `http://35.84.122.229:8081/auth` |
+| Produção | `tc-oficina` | `http://35.83.151.56` (porta 80) | `http://35.83.151.56/swagger-ui/index.html` | `http://35.83.151.56/health` |
+| Homologação | `tc-oficina-homolog` | `http://35.83.151.56:8081` | `http://35.83.151.56:8081/swagger-ui/index.html` | `http://35.83.151.56:8081/health` |
+| Lambda Auth (prod) | - | API Gateway AWS | - | `https://94hgdxyf77.execute-api.us-west-2.amazonaws.com/Prod/auth` |
 
 Documentação de arquitetura, decisões (ADRs) e modelo de dados:
 [`docs/architecture.md`](docs/architecture.md), [`docs/adr/`](docs/adr/),
@@ -1203,4 +1224,4 @@ Para dúvidas ou reportar bugs:
 
 ---
 
-**Última atualização**: Julho 2026 | **Versão**: `1.5.0` (definida em `pom.xml`)
+**Última atualização**: Agosto 2026 | **Versão**: `1.6.0` (definida em `pom.xml`)

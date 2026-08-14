@@ -1,0 +1,128 @@
+### [1] AUTENTICACAO - Validacao de CPF (Lambda Serverless)
+# Retorna JWT se o CPF existe no banco. CPF teste: 12345678909
+POST https://94hgdxyf77.execute-api.us-west-2.amazonaws.com/Prod/auth
+Content-Type: application/json
+
+{
+  "cpf": "12345678909"
+}
+
+### [2] Healthchecks via API Gateway Traefik
+GET http://35.83.151.56/actuator/health
+GET http://35.83.151.56/health
+GET http://35.83.151.56:8081/actuator/health
+GET http://35.83.151.56:8081/health
+
+### [3] Swagger / OpenAPI
+GET http://35.83.151.56/swagger-ui.html
+GET http://35.83.151.56/v3/api-docs
+GET http://35.83.151.56:8081/swagger-ui.html
+GET http://35.83.151.56:8081/v3/api-docs
+
+### [4] Login Admin (aplicacao principal)
+POST http://35.83.151.56/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "usuario": "admin",
+  "senha": "admin123"
+}
+
+> {% client.global.set("access_token", response.body.access_token); %}
+
+### [5] Rota protegida SEM token (deve retornar 401)
+GET http://35.83.151.56/api/v1/admin/ordem
+
+### [6] Criar Cliente
+POST http://35.83.151.56/api/v1/admin/clientes
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Mario Silva",
+  "cpfCnpj": "17861341011",
+  "email": "mario.silva@email.com",
+  "telefone": "11987651234"
+}
+
+### [7] Criar Veiculo
+POST http://35.83.151.56/api/v1/admin/veiculos
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "placa": "ABC-1234",
+  "marca": "Toyota",
+  "modelo": "Corolla",
+  "ano": 2020,
+  "clienteId": 2
+}
+
+### [8] Criar Peca
+POST http://35.83.151.56/api/v1/admin/pecas
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Filtro de Oleo",
+  "descricao": "Filtro para motor",
+  "preco": 50.00,
+  "qtdEstoque": 100
+}
+
+### [9] Criar Servico
+POST http://35.83.151.56/api/v1/admin/servicos
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "nome": "Troca de Oleo",
+  "descricao": "Troca completa",
+  "preco": 100.00
+}
+
+### [10] Criar Ordem de Servico (status RECEBIDA)
+POST http://35.83.151.56/api/v1/admin/ordem
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "clienteCpfCnpj": "17861341011",
+  "placaVeiculo": "ABC1234",
+  "servicosIds": [1],
+  "pecasIds": [1]
+}
+
+### [11] Avancar status (RECEBIDA -> EM_DIAGNOSTICO -> AGUARDANDO_APROVACAO)
+PUT http://35.83.151.56/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### [12] Aprovar Orcamento (AGUARDANDO_APROVACAO -> EM_EXECUCAO)
+POST http://35.83.151.56/api/v1/admin/ordem/1/aprovar-orcamento
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+  "aprovado": true,
+  "observacoes": "Orcamento aprovado"
+}
+
+### [13] Avancar (EM_EXECUCAO -> FINALIZADA -> ENTREGUE)
+PUT http://35.83.151.56/api/v1/admin/ordem/1/avanca
+Authorization: Bearer {{access_token}}
+
+### [14] Listar OS de um cliente (publico)
+GET http://35.83.151.56/api/v1/publico/ordem/cliente/2
+
+### [15] Metricas de tempo medio de execucao (admin)
+GET http://35.83.151.56/api/v1/admin/metricas/tempo-execucao
+Authorization: Bearer {{access_token}}
+
+### [16] Mesmo fluxo em HOMOLOGACAO (porta 8081)
+POST http://35.83.151.56:8081/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "usuario": "admin",
+  "senha": "admin123"
+}

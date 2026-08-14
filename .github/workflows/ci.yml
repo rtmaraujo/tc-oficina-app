@@ -204,7 +204,7 @@ jobs:
       ENTRYPOINT: web
       GATEWAY_PORT: "80"
       MIN_REPLICAS: "2"
-      MAX_REPLICAS: "3"
+      MAX_REPLICAS: "2"
       ECR_IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
 
     steps:

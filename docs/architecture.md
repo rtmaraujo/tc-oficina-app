@@ -148,4 +148,4 @@ Todas as requisições passam pelo **API Gateway Traefik** (ponto único de entr
 | Ambiente | Namespace | API Gateway | Lambda stack |
 |----------|-----------|-------------|--------------|
 | Produção | `tc-oficina` | `:80` / `:443` | `tc-oficina-auth` |
-| Homologação | `tc-oficina-homolog` | `:8081` / `:8443` | `tc-oficina-auth-homolog` |
+| Homologação | `tc-oficina-homolog` | `:8081` | `tc-oficina-auth-homolog` |

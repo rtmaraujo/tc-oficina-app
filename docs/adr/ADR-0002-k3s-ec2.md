@@ -27,4 +27,6 @@ Provisionar um cluster **k3s autogerenciado em EC2** (1 servidor + 2 workers, in
 
 - **HPA limitado a `maxReplicas: 4`** (ADR-0003) para caber na capacidade do cluster.
 - O acesso SSH (`porta 22` + chave) é usado pelo CI/CD para aplicar manifestos.
-- NodePort expõe app e auth: produção `30080`/`30082`, homologação `30081`/`30083`.
+- **API Gateway Traefik** (ingress do k3s) é o ponto único de entrada: produção `80/443`,
+  homologação `8081/8443`. Services de app/auth são `ClusterIP` — nenhum NodePort é exposto
+  publicamente.

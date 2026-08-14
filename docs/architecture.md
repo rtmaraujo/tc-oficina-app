@@ -10,18 +10,19 @@ flowchart TB
     CLIENTE["Cliente (público)"]
 
     subgraph PROD["Produção"]
-        APPGW["API Gateway<br/>(tc-oficina-auth)"]
-        LAMBDA["Auth Lambda<br/>Java 21"]
-        K3S_APP["App Spring Boot<br/>k3s ns tc-oficina :30080"]
-        K3S_AUTH["Auth container<br/>k3s ns tc-oficina :30082"]
+        APPGW["API Gateway Traefik<br/>80/443 (k3s)"]
+        LAMBDA["Auth Lambda<br/>Java 21 (opcional)"]
+        K3S_APP["App Spring Boot<br/>k3s ns tc-oficina"]
+        K3S_AUTH["Auth container<br/>k3s ns tc-oficina"]
         RDS[(RDS PostgreSQL 15<br/>privado)]
     end
 
-    ADMIN -->|login JWT| K3S_APP
-    CLIENTE -->|"POST /auth {cpf}"| APPGW
-    APPGW -->|invoca| LAMBDA
+    ADMIN -->|HTTPS| APPGW
+    CLIENTE -->|HTTPS| APPGW
+    APPGW -->|"GET /api/v1, /actuator, /swagger"| K3S_APP
+    APPGW -->|"POST /auth {cpf}"| K3S_AUTH
+    CLIENTE -.->|"POST /auth (serverless)"| LAMBDA
     LAMBDA -->|JDBC| RDS
-    LAMBDA -->|JWT HS256| APPGW
     K3S_AUTH -->|JDBC| RDS
     K3S_APP -->|JDBC| RDS
     K3S_APP -->|consulta status| K3S_AUTH
@@ -131,17 +132,20 @@ flowchart LR
 
 ## Endpoints em Produção
 
+Todas as requisições passam pelo **API Gateway Traefik** (ponto único de entrada no k3s):
+
 | Serviço | Endpoint |
 |---------|----------|
-| App API + Swagger | `http://35.84.122.229:30080/swagger-ui/index.html` |
-| App health | `http://35.84.122.229:30080/actuator/health` |
-| Auth container | `http://35.84.122.229:30082/auth` |
-| Auth Lambda (API Gateway) | `https://8rfjx5ofoi.execute-api.us-west-2.amazonaws.com/Prod/auth` |
+| App API + Swagger | `http://35.84.122.229/swagger-ui/index.html` |
+| App health | `http://35.84.122.229/actuator/health` |
+| Auth (via gateway) | `http://35.84.122.229/auth` |
+| Homologação (via gateway) | `http://35.84.122.229:8081/...` |
+| Auth Lambda (API Gateway AWS, opcional) | `https://8rfjx5ofoi.execute-api.us-west-2.amazonaws.com/Prod/auth` |
 | Auth Lambda (homolog) | `https://6116yqil7i.execute-api.us-west-2.amazonaws.com/Prod/auth` |
 
 ## Ambientes
 
-| Ambiente | Namespace | App | Auth container | Lambda stack |
-|----------|-----------|-----|----------------|--------------|
-| Produção | `tc-oficina` | `:30080` | `:30082` | `tc-oficina-auth` |
-| Homologação | `tc-oficina-homolog` | `:30081` | `:30083` | `tc-oficina-auth-homolog` |
+| Ambiente | Namespace | API Gateway | Lambda stack |
+|----------|-----------|-------------|--------------|
+| Produção | `tc-oficina` | `:80` / `:443` | `tc-oficina-auth` |
+| Homologação | `tc-oficina-homolog` | `:8081` / `:8443` | `tc-oficina-auth-homolog` |

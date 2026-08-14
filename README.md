@@ -147,14 +147,16 @@ flowchart TB
     APP_DEV --> DB_DEV
   end
 
-  subgraph K8S[Kubernetes / EKS - Produção]
+  subgraph K8S[Kubernetes / k3s - Producao]
     direction TB
-    SVC[Service NodePort<br/>porta 80 → 30080]
-    APP_PROD[App Deployment<br/>2-10 réplicas<br/>JRE Alpine ~120 MB]
-    DB_PROD[(PostgreSQL 15<br/>PVC 5Gi)]
+    GW[API Gateway Traefik<br/>porta 80/443]
+    SVC[Service ClusterIP<br/>porta 80]
+    APP_PROD[App Deployment<br/>2-10 replicas<br/>JRE Alpine ~120 MB]
+    DB_PROD[(PostgreSQL 15<br/>RDS gerenciado)]
     HPA[HPA<br/>CPU 70% / memória 80%]
     CM[ConfigMap<br/>DB URL, log level]
     SECRET[Secret<br/>DB password, JWT]
+    GW --> SVC
     SVC --> APP_PROD
     APP_PROD --> DB_PROD
     HPA --> APP_PROD
@@ -813,10 +815,10 @@ A imagem Docker gerada por este repositório é publicada no **ECR** e consumida
 
 **Ambientes em produção:**
 
-| Ambiente | Namespace | App | Swagger | Auth container |
-|----------|-----------|-----|---------|----------------|
-| Produção | `tc-oficina` | `http://35.84.122.229:30080` | `http://35.84.122.229:30080/swagger-ui/index.html` | `http://35.84.122.229:30082/auth` |
-| Homologação | `tc-oficina-homolog` | `http://35.84.122.229:30081` | `http://35.84.122.229:30081/swagger-ui/index.html` | `http://35.84.122.229:30083/auth` |
+| Ambiente | Namespace | API Gateway | Swagger | Auth |
+|----------|-----------|-------------|---------|------|
+| Produção | `tc-oficina` | `http://35.84.122.229` (porta 80) | `http://35.84.122.229/swagger-ui/index.html` | `http://35.84.122.229/auth` |
+| Homologação | `tc-oficina-homolog` | `http://35.84.122.229:8081` | `http://35.84.122.229:8081/swagger-ui/index.html` | `http://35.84.122.229:8081/auth` |
 
 Documentação de arquitetura, decisões (ADRs) e modelo de dados:
 [`docs/architecture.md`](docs/architecture.md), [`docs/adr/`](docs/adr/),

@@ -12,10 +12,10 @@ automático via CI/CD a partir de branchs.
 
 Duas branchs de deploy em todos os repositórios:
 
-| Branch | Ambiente | Namespace k3s | Portas | Stack SAM |
-|--------|----------|---------------|--------|-----------|
-| `main` | produção | `tc-oficina` | app `30080`, auth `30082` | `tc-oficina-auth` |
-| `homologacao` | homologação | `tc-oficina-homolog` | app `30081`, auth `30083` | `tc-oficina-auth-homolog` |
+| Branch | Ambiente | Namespace k3s | API Gateway | Stack SAM |
+|--------|----------|---------------|-------------|-----------|
+| `main` | produção | `tc-oficina` | `:80` / `:443` (entrypoint `web`) | `tc-oficina-auth` |
+| `homologacao` | homologação | `tc-oficina-homolog` | `:8081` / `:8443` (entrypoint `web-homolog`) | `tc-oficina-auth-homolog` |
 
 - Branch `main` é **protegida**: mudanças apenas via Pull Request.
 - `homologacao` é fast-forward a partir de `main` após o merge do PR.
@@ -28,6 +28,6 @@ Duas branchs de deploy em todos os repositórios:
 
 ## Consequências
 
-- Manifestos `k8s/*.yaml` usam `envsubst` (`${NAMESPACE}`, `${NODE_PORT}`).
+- Manifestos `k8s/*.yaml` usam `envsubst` (`${NAMESPACE}`, `${ENTRYPOINT}`).
 - GitHub **environments** `producao` e `homologacao` com secrets próprios.
 - O CI cria o namespace antes de aplicar o `regcred` (ECR imagePullSecret).
